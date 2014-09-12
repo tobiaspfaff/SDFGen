@@ -9,6 +9,7 @@
 #include <iostream>
 #include <sstream>
 #include <limits>
+#include <zlib.h>
 
 int main(int argc, char* argv[]) {
   
@@ -69,7 +70,7 @@ int main(int argc, char* argv[]) {
   std::vector<Vec3ui> faceList;
   while(!infile.eof()) {
     std::getline(infile, line);
-    if(line.substr(0,1) == std::string("v")) {
+    if(line[0] == 'v' && (line[1] == ' ' || line[1] == '\t')) {
       std::stringstream data(line);
       char c;
       Vec3f point;
@@ -77,12 +78,28 @@ int main(int argc, char* argv[]) {
       vertList.push_back(point);
       update_minmax(point, min_box, max_box);
     }
-    else if(line.substr(0,1) == std::string("f")) {
+    else if(line[0] == 'f' && (line[1] == ' ' || line[1] == '\t')) {
       std::stringstream data(line);
-      char c;
-      int v0,v1,v2;
-      data >> c >> v0 >> v1 >> v2;
-      faceList.push_back(Vec3ui(v0-1,v1-1,v2-1));
+      std::string w;
+      int f[4];
+      int idx = 0;
+      data >> w;
+      while (data >> w) {
+        std::stringstream wstream(w);
+        int n;
+        wstream >> n;
+        f[idx++] = n;
+        if (idx > 4) {
+            std::cout << "only tris, quads supported\n";
+            exit(1);
+        }
+      }
+      if (idx == 3) {
+        faceList.push_back(Vec3ui(f[0]-1,f[1]-1,f[2]-1));
+      } else if (idx == 4) {
+        faceList.push_back(Vec3ui(f[0]-1,f[1]-1,f[2]-1));
+        faceList.push_back(Vec3ui(f[2]-1,f[3]-1,f[0]-1));
+      }
     }
     else {
       ++ignored_lines; 
@@ -110,14 +127,17 @@ int main(int argc, char* argv[]) {
   //Very hackily strip off file suffix.
   std::string outname = filename.substr(0, filename.size()-4) + std::string(".sdf");
   std::cout << "Writing results to: " << outname << "\n";
-  std::ofstream outfile( outname.c_str());
-  outfile << phi_grid.ni << " " << phi_grid.nj << " " << phi_grid.nk << std::endl;
-  outfile << min_box[0] << " " << min_box[1] << " " << min_box[2] << std::endl;
-  outfile << dx << std::endl;
-  for(unsigned int i = 0; i < phi_grid.a.size(); ++i) {
-    outfile << phi_grid.a[i] << std::endl;
-  }
-  outfile.close();
+
+  int version = 0x1;
+  gzFile fp = gzopen(outname.c_str(), "w7");
+  gzwrite(fp, &version, sizeof(int));
+  gzwrite(fp, &phi_grid.ni, sizeof(int));
+  gzwrite(fp, &phi_grid.nj, sizeof(int));
+  gzwrite(fp, &phi_grid.nk, sizeof(int));
+  gzwrite(fp, &min_box[0], sizeof(float) * 3);
+  gzwrite(fp, &dx, sizeof(float));
+  gzwrite(fp, &phi_grid.a[0], sizeof(float) * phi_grid.a.size());
+  gzclose(fp);
   std::cout << "Processing complete.\n";
 
 return 0;
